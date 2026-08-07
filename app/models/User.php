@@ -1,134 +1,143 @@
 <?php
+/**
+ * Schema: english_learning.users
+ * columns: id, username, email, password, full_name, avatar, role (admin|student), level (A1–C2)
+ */
 class User {
     private $conn;
     private $table = 'users';
 
     public function __construct() {
-        $db = new Database();
+        $db = new Database('learning');
         $this->conn = $db->getConnection();
     }
 
-    /**
-     * Tìm thông tin người dùng theo Email hoặc Username
-     * Kèm theo thông tin vai trò từ bảng `roles` (role_code, role_name)
-     * Schema: full_name, password_hash (khớp english_hub.sql)
-     */
     public function findByEmailOrUsername($keyword) {
-        $query = "SELECT u.id, u.role_id, u.level_id, u.full_name, u.username, u.email,
-                         u.password_hash, u.phone, u.avatar, u.status, u.is_verified,
-                         u.last_login_at, u.created_at,
-                         r.code AS role_code, r.name AS role_name 
-                  FROM " . $this->table . " u
-                  LEFT JOIN roles r ON u.role_id = r.id
-                  WHERE u.email = :keyword OR u.username = :keyword 
-                  LIMIT 1";
-                  
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':keyword', $keyword);
-        $stmt->execute();
+        // PDO native prepares không cho dùng 1 placeholder 2 lần → tách :email và :username
+        $sql = "SELECT * FROM {$this->table}
+                WHERE email = :email OR username = :username
+                LIMIT 1";
+        $stmt = $this->conn->prepare($sql);
+        $stmt->execute([
+            ':email'    => $keyword,
+            ':username' => $keyword,
+        ]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        // Alias tiện dùng trong code (fullname = full_name)
         if ($user) {
-            $user['fullname'] = $user['full_name'];
+            $user['fullname'] = $user['full_name'] ?? $user['username'];
+            // Tương thích code cũ dùng role_code
+            $user['role_code'] = $user['role'] ?? 'student';
+            $user['role_name'] = ($user['role'] ?? '') === 'admin' ? 'Quản trị viên' : 'Học viên';
+            $user['password_hash'] = $user['password'] ?? '';
         }
         return $user;
     }
 
-    /**
-     * Đăng ký tài khoản mới
-     * Mặc định role_id = 3 (Học viên - Student)
-     * Cột DB: full_name, password_hash
-     */
-    public function register($fullname, $username, $email, $password, $role_id = 3) {
-        // Kiểm tra xem Username hoặc Email đã tồn tại chưa
+    public function findById($id) {
+        $stmt = $this->conn->prepare("SELECT * FROM {$this->table} WHERE id = :id LIMIT 1");
+        $stmt->bindValue(':id', (int)$id, PDO::PARAM_INT);
+        $stmt->execute();
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($user) {
+            $user['fullname'] = $user['full_name'] ?? $user['username'];
+            $user['role_code'] = $user['role'] ?? 'student';
+        }
+        return $user;
+    }
+
+    public function findByEmail($email) {
+        $stmt = $this->conn->prepare("SELECT * FROM {$this->table} WHERE email = :email LIMIT 1");
+        $stmt->bindParam(':email', $email);
+        $stmt->execute();
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($user) {
+            $user['fullname'] = $user['full_name'] ?? $user['username'];
+            $user['role_code'] = $user['role'] ?? 'student';
+            $user['password_hash'] = $user['password'] ?? '';
+        }
+        return $user;
+    }
+
+    public function register($fullname, $username, $email, $password, $role = 'student') {
         if ($this->findByEmailOrUsername($email) || $this->findByEmailOrUsername($username)) {
             return ['status' => false, 'message' => 'Email hoặc Tên đăng nhập đã tồn tại!'];
         }
-
-        // Mã hóa mật khẩu
-        $hashed_password = password_hash($password, PASSWORD_BCRYPT);
-
-        $query = "INSERT INTO " . $this->table . " (full_name, username, email, password_hash, role_id, status, is_verified) 
-                  VALUES (:full_name, :username, :email, :password_hash, :role_id, 'active', 1)";
-        
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':full_name', $fullname);
-        $stmt->bindParam(':username', $username);
-        $stmt->bindParam(':email', $email);
-        $stmt->bindParam(':password_hash', $hashed_password);
-        $stmt->bindParam(':role_id', $role_id);
-
-        if ($stmt->execute()) {
-            return ['status' => true, 'message' => 'Đăng ký tài khoản thành công!'];
-        }
-        return ['status' => false, 'message' => 'Đã có lỗi xảy ra khi khởi tạo tài khoản.'];
+        $hash = password_hash($password, PASSWORD_BCRYPT);
+        $sql = "INSERT INTO {$this->table} (full_name, username, email, password, role, level)
+                VALUES (:full_name, :username, :email, :password, :role, 'A1')";
+        $stmt = $this->conn->prepare($sql);
+        $ok = $stmt->execute([
+            ':full_name' => $fullname,
+            ':username'  => $username,
+            ':email'     => $email,
+            ':password'  => $hash,
+            ':role'      => $role === 'admin' ? 'admin' : 'student',
+        ]);
+        return $ok
+            ? ['status' => true, 'message' => 'Đăng ký tài khoản thành công!']
+            : ['status' => false, 'message' => 'Lỗi khi tạo tài khoản.'];
     }
 
-    /**
-     * Đăng nhập tài khoản
-     * Cột mật khẩu: password_hash
-     */
+    /** Google OAuth — tạo user học viên nếu chưa có */
+    public function findOrCreateByGoogle($email, $fullName, $avatar = null) {
+        $user = $this->findByEmail($email);
+        if ($user) {
+            return ['status' => true, 'user' => $user];
+        }
+
+        $base = preg_replace('/[^a-z0-9]/i', '', strstr($email, '@', true) ?: 'user');
+        $username = $base . rand(100, 999);
+        // tránh trùng username
+        while ($this->findByEmailOrUsername($username)) {
+            $username = $base . rand(1000, 9999);
+        }
+        $hash = password_hash(bin2hex(random_bytes(16)), PASSWORD_BCRYPT);
+        $sql = "INSERT INTO {$this->table} (full_name, username, email, password, role, level, avatar)
+                VALUES (:full_name, :username, :email, :password, 'student', 'A1', :avatar)";
+        $stmt = $this->conn->prepare($sql);
+        try {
+            $stmt->execute([
+                ':full_name' => $fullName ?: $username,
+                ':username'  => $username,
+                ':email'     => $email,
+                ':password'  => $hash,
+                ':avatar'    => $avatar ?: 'default.png',
+            ]);
+        } catch (Exception $e) {
+            return ['status' => false, 'message' => 'Không tạo được tài khoản Google.'];
+        }
+        $user = $this->findByEmail($email);
+        if (!$user) {
+            return ['status' => false, 'message' => 'Tạo user Google thất bại.'];
+        }
+        return ['status' => true, 'user' => $user];
+    }
+
     public function login($account, $password) {
         $user = $this->findByEmailOrUsername($account);
         if (!$user) {
             return ['status' => false, 'message' => 'Tài khoản không tồn tại!'];
         }
-
-        // Kiểm tra trạng thái tài khoản
-        if (isset($user['status']) && $user['status'] === 'locked') {
-            return ['status' => false, 'message' => 'Tài khoản đã bị khóa!'];
+        if (!password_verify($password, $user['password'])) {
+            return ['status' => false, 'message' => 'Mật khẩu không đúng!'];
         }
-
-        $hashedPassword = $user['password_hash'] ?? null;
-
-        if ($hashedPassword === null || $hashedPassword === '') {
-            return ['status' => false, 'message' => 'Tài khoản chưa có mật khẩu. Vui lòng liên hệ quản trị viên!'];
-        }
-
-        // Xác thực mật khẩu mã hóa
-        if (password_verify($password, $hashedPassword)) {
-            // Cập nhật last_login_at
-            $this->updateLastLogin($user['id']);
-            return ['status' => true, 'user' => $user];
-        } else {
-            return ['status' => false, 'message' => 'Mật khẩu không chính xác!'];
-        }
+        return ['status' => true, 'user' => $user];
     }
 
-    /**
-     * Cập nhật thời gian đăng nhập gần nhất
-     */
-    private function updateLastLogin($userId) {
-        $query = "UPDATE " . $this->table . " SET last_login_at = NOW() WHERE id = :id";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $userId);
-        $stmt->execute();
+    public function updateLevel($userId, $level) {
+        $allowed = ['A1','A2','B1','B2','C1','C2'];
+        if (!in_array($level, $allowed, true)) return false;
+        $stmt = $this->conn->prepare("UPDATE {$this->table} SET level = :lv WHERE id = :id");
+        return $stmt->execute([':lv' => $level, ':id' => (int)$userId]);
     }
 
-    /**
-     * Lấy danh sách toàn bộ người dùng (Phục vụ trang Quản trị Admin)
-     */
     public function getAllUsers() {
-        $query = "SELECT u.id, u.full_name, u.username, u.email, u.status, u.created_at, u.role_id,
-                         r.code AS role_code, r.name AS role_name 
-                  FROM " . $this->table . " u
-                  LEFT JOIN roles r ON u.role_id = r.id
-                  ORDER BY u.id DESC";
-                  
-        $stmt = $this->conn->prepare($query);
-        $stmt->execute();
+        $stmt = $this->conn->query("SELECT id, username, email, full_name, role, level, created_at FROM {$this->table} ORDER BY id DESC");
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    /**
-     * Cập nhật quyền (role_id) cho người dùng
-     */
-    public function updateRole($userId, $roleId) {
-        $query = "UPDATE " . $this->table . " SET role_id = :role_id WHERE id = :id";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':role_id', $roleId);
-        $stmt->bindParam(':id', $userId);
-        return $stmt->execute();
+    public function getAllStudents() {
+        $stmt = $this->conn->query("SELECT id, username, email, full_name, level, created_at FROM {$this->table} WHERE role = 'student' ORDER BY id DESC");
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }

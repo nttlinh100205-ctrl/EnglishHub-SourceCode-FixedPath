@@ -1,80 +1,79 @@
-<?php require_once '../app/views/layouts/header.php'; ?>
+<?php require_once dirname(__DIR__) . '/layouts/header.php'; ?>
 <div class="container my-4">
-    <div class="row mb-4">
-        <div class="col">
-            <h2 class="fw-bold text-danger"><i class="bi bi-speedometer2 me-2"></i>Bảng Điều Khiển Quản Trị Viên</h2>
-            <p class="text-muted">Chào mừng <strong><?= htmlspecialchars($_SESSION['fullname'] ?? $_SESSION['username'] ?? 'Admin') ?></strong> quay trở lại hệ thống!</p>
-        </div>
-    </div>
+  <h2 class="fw-bold mb-3" style="color:#0f766e">Bảng quản trị</h2>
 
-    <!-- Thống kê tổng quan -->
-    <div class="row g-3 mb-4">
-        <div class="col-md-4">
-            <div class="card bg-danger text-white border-0 shadow-sm rounded-4 p-3">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="mb-1 text-uppercase">Tổng Người Dùng</h6>
-                        <h3 class="fw-bold mb-0"><?= count($data['users'] ?? []) ?></h3>
-                    </div>
-                    <i class="bi bi-people fs-1 opacity-50"></i>
-                </div>
-            </div>
+  <?php $dbStatus = $data['db_status'] ?? []; if ($dbStatus): ?>
+  <div class="row g-3 mb-4">
+    <?php foreach ($dbStatus as $key => $st): ?>
+    <div class="col-md-6">
+      <div class="card border-0 shadow-sm rounded-4 h-100 border-start border-4 <?= !empty($st['ok']) ? 'border-success' : 'border-danger' ?>">
+        <div class="card-body p-3">
+          <div class="d-flex justify-content-between">
+            <strong><?= htmlspecialchars($st['name'] ?? $key) ?></strong>
+            <span class="badge bg-<?= !empty($st['ok']) ? 'success' : 'danger' ?>"><?= !empty($st['ok']) ? 'Connected' : 'Error' ?></span>
+          </div>
+          <?php if (!empty($st['ok'])): ?>
+            <p class="small text-muted mb-0 mt-1">
+              <?php if (isset($st['courses'])): ?>courses: <?= (int)$st['courses'] ?><?php endif; ?>
+              <?php if (isset($st['tables'])): ?>tables: <?= (int)$st['tables'] ?><?php endif; ?>
+              <?php if ($key === 'learning'): ?> · <em>PRIMARY (users, courses, lessons)</em><?php endif; ?>
+              <?php if ($key === 'hub'): ?> · <em>SECONDARY</em><?php endif; ?>
+            </p>
+          <?php else: ?>
+            <p class="small text-danger mb-0 mt-1"><?= htmlspecialchars($st['error'] ?? 'Lỗi') ?></p>
+          <?php endif; ?>
         </div>
-        <div class="col-md-4">
-            <div class="card bg-primary text-white border-0 shadow-sm rounded-4 p-3">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="mb-1 text-uppercase">Khóa Học Hệ Thống</h6>
-                        <h3 class="fw-bold mb-0">12</h3>
-                    </div>
-                    <i class="bi bi-journal-bookmark fs-1 opacity-50"></i>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="card bg-success text-white border-0 shadow-sm rounded-4 p-3">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="mb-1 text-uppercase">Lượt Kiểm Tra</h6>
-                        <h3 class="fw-bold mb-0">158</h3>
-                    </div>
-                    <i class="bi bi-file-earmark-check fs-1 opacity-50"></i>
-                </div>
-            </div>
-        </div>
+      </div>
     </div>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
 
-    <!-- Danh sách người dùng -->
-    <div class="card border-0 shadow-sm rounded-4 p-4">
-        <h5 class="fw-bold mb-3"><i class="bi bi-person-lines-fill me-2"></i>Quản lý tài khoản hệ thống</h5>
-        <div class="table-responsive">
-            <table class="table table-hover align-middle">
-                <thead class="table-light">
-                    <tr>
-                        <th>ID</th>
-                        <th>Họ tên</th>
-                        <th>Tên đăng nhập</th>
-                        <th>Email</th>
-                        <th>Quyền (Role)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach($data['users'] as $u): ?>
-                    <tr>
-                        <td>#<?= $u['id'] ?></td>
-                        <td><?= htmlspecialchars($u['full_name']) ?></td>
-                        <td><code><?= htmlspecialchars($u['username']) ?></code></td>
-                        <td><?= htmlspecialchars($u['email']) ?></td>
-                        <td>
-                            <span class="badge bg-<?= ($u['role_code'] ?? '') === 'admin' ? 'danger' : 'success' ?>">
-                                <?= ($u['role_code'] ?? '') === 'admin' ? 'Quản trị viên' : 'Học viên' ?>
-                            </span>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+  <div class="row g-3 mb-4">
+    <div class="col-md-4">
+      <a href="<?= URLROOT ?>/admin/courses" class="card border-0 shadow-sm rounded-4 text-decoration-none h-100">
+        <div class="card-body p-4">
+          <i class="bi bi-journal-bookmark fs-2 text-success"></i>
+          <h5 class="fw-bold mt-2 text-dark">Khóa học &amp; Bài học</h5>
+          <p class="text-muted small mb-0">Thêm / sửa khóa học, bài học trong database</p>
         </div>
+      </a>
     </div>
+    <div class="col-md-4">
+      <div class="card border-0 shadow-sm rounded-4 h-100">
+        <div class="card-body p-4">
+          <i class="bi bi-people fs-2 text-primary"></i>
+          <h5 class="fw-bold mt-2"><?= count($data['users'] ?? []) ?> người dùng</h5>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card border-0 shadow-sm rounded-4 h-100">
+        <div class="card-body p-4">
+          <i class="bi bi-collection fs-2 text-warning"></i>
+          <h5 class="fw-bold mt-2"><?= count($data['courses'] ?? []) ?> khóa học</h5>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h5 class="fw-bold mb-2">Người dùng</h5>
+  <div class="table-responsive bg-white shadow-sm rounded-4">
+    <table class="table table-hover mb-0">
+      <thead class="table-light"><tr><th>ID</th><th>Username</th><th>Email</th><th>Họ tên</th><th>Role</th><th>Level</th></tr></thead>
+      <tbody>
+        <?php foreach (($data['users'] ?? []) as $u): ?>
+        <tr>
+          <td><?= (int)$u['id'] ?></td>
+          <td><?= htmlspecialchars($u['username']) ?></td>
+          <td><?= htmlspecialchars($u['email']) ?></td>
+          <td><?= htmlspecialchars($u['full_name'] ?? '') ?></td>
+          <td><span class="badge bg-<?= ($u['role']??'')==='admin'?'danger':'secondary' ?>"><?= htmlspecialchars($u['role']??'') ?></span></td>
+          <td><?= htmlspecialchars($u['level']??'') ?></td>
+        </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
 </div>
-<?php require_once '../app/views/layouts/footer.php'; ?>
+<?php require_once dirname(__DIR__) . '/layouts/footer.php'; ?>
